@@ -1,0 +1,9 @@
+{
+  "name": "Ivan Fit",
+  "short_name": "Ivan Fit",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#090A0A",
+  "theme_color": "#D6A62E",
+  "description": "App fitness Ivan Cecchetti Personal Trainer"
+}
