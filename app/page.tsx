@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import BottomNav from '@/components/BottomNav';
 import WorkoutTracker from '@/components/WorkoutTracker';
-import { athletes, todayWorkout } from '@/lib/data';
+import { todayWorkout } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 
 type Role = 'athlete' | 'coach';
@@ -12,6 +12,11 @@ type Profile = {
   id: string;
   full_name: string;
   role: Role;
+};
+
+type CoachAthlete = {
+  id: string;
+  full_name: string;
 };
 
 export default function Home() {
@@ -25,6 +30,10 @@ export default function Home() {
 
   const [tab, setTab] = useState('home');
 
+  // ALLIEVI REALI DEL COACH
+  const [coachAthletes, setCoachAthletes] = useState<CoachAthlete[]>([]);
+  const [athletesLoading, setAthletesLoading] = useState(false);
+
   // MODALE NUOVO ALLIEVO
   const [showNewAthlete, setShowNewAthlete] = useState(false);
   const [athleteName, setAthleteName] = useState('');
@@ -32,6 +41,69 @@ export default function Home() {
   const [athletePlan, setAthletePlan] = useState('');
   const [athleteGoal, setAthleteGoal] = useState('');
   const [athleteCheck, setAthleteCheck] = useState('');
+  const [creatingAthlete, setCreatingAthlete] = useState(false);
+
+  const loadProfile = async (userId: string) => {
+    const { data, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, role')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      console.error('Errore profilo:', profileError);
+      setProfile(null);
+      return null;
+    }
+
+    const loadedProfile = data as Profile;
+    setProfile(loadedProfile);
+
+    return loadedProfile;
+  };
+
+  const loadCoachAthletes = async (coachId: string) => {
+    setAthletesLoading(true);
+
+    try {
+      // Prima recuperiamo le relazioni coach -> allievi.
+      const { data: relations, error: relationsError } = await supabase
+        .from('coach_athletes')
+        .select('athlete_id')
+        .eq('coach_id', coachId)
+        .eq('active', true);
+
+      if (relationsError) {
+        console.error('Errore relazioni coach/allievi:', relationsError);
+        setCoachAthletes([]);
+        return;
+      }
+
+      const athleteIds =
+        relations?.map((relation) => relation.athlete_id) ?? [];
+
+      if (athleteIds.length === 0) {
+        setCoachAthletes([]);
+        return;
+      }
+
+      // Poi leggiamo i profili degli allievi collegati.
+      const { data: athleteProfiles, error: athletesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', athleteIds);
+
+      if (athletesError) {
+        console.error('Errore caricamento allievi:', athletesError);
+        setCoachAthletes([]);
+        return;
+      }
+
+      setCoachAthletes((athleteProfiles ?? []) as CoachAthlete[]);
+    } finally {
+      setAthletesLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadSession = async () => {
@@ -40,7 +112,11 @@ export default function Home() {
       } = await supabase.auth.getSession();
 
       if (session?.user) {
-        await loadProfile(session.user.id);
+        const loadedProfile = await loadProfile(session.user.id);
+
+        if (loadedProfile?.role === 'coach') {
+          await loadCoachAthletes(loadedProfile.id);
+        }
       }
 
       setLoading(false);
@@ -53,6 +129,7 @@ export default function Home() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!session?.user) {
         setProfile(null);
+        setCoachAthletes([]);
       }
     });
 
@@ -60,22 +137,6 @@ export default function Home() {
       subscription.unsubscribe();
     };
   }, []);
-
-  const loadProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id, full_name, role')
-      .eq('id', userId)
-      .single();
-
-    if (error) {
-      console.error('Errore profilo:', error);
-      setProfile(null);
-      return;
-    }
-
-    setProfile(data as Profile);
-  };
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -95,69 +156,101 @@ export default function Home() {
       return;
     }
 
-    await loadProfile(data.user.id);
+    const loadedProfile = await loadProfile(data.user.id);
+
+    if (loadedProfile?.role === 'coach') {
+      await loadCoachAthletes(loadedProfile.id);
+    }
+
     setLoginLoading(false);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+
     setProfile(null);
+    setCoachAthletes([]);
     setEmail('');
     setPassword('');
     setTab('home');
   };
 
-const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
-  e.preventDefault();
+  const handleNewAthlete = async (
+    e: FormEvent<HTMLFormElement>
+  ) => {
+    e.preventDefault();
 
-  try {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      alert('Sessione scaduta. Esci e accedi nuovamente.');
+    if (creatingAthlete) {
       return;
     }
 
-    const response = await fetch('/api/create-athlete', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        name: athleteName,
-        email: athleteEmail,
-        plan: athletePlan,
-        goal: athleteGoal,
-        nextCheck: athleteCheck,
-      }),
-    });
+    setCreatingAthlete(true);
+    setError('');
 
-    const result = await response.json();
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
-    if (!response.ok) {
-      console.error('Errore creazione allievo:', result);
-      alert(result.error || 'Errore durante la creazione dell’allievo.');
-      return;
+      if (!session?.access_token) {
+        alert('Sessione scaduta. Esci e accedi nuovamente.');
+        return;
+      }
+
+      const response = await fetch('/api/create-athlete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          name: athleteName,
+          email: athleteEmail,
+          plan: athletePlan,
+          goal: athleteGoal,
+          nextCheck: athleteCheck,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Errore creazione allievo:', result);
+
+        alert(
+          result.error ||
+            'Errore durante la creazione dell’allievo.'
+        );
+
+        return;
+      }
+
+      // Aggiorniamo subito l'elenco senza ricaricare la pagina.
+      if (profile?.role === 'coach') {
+        await loadCoachAthletes(profile.id);
+      }
+
+      alert(
+        `Allievo creato correttamente!\n\nEmail: ${athleteEmail}\nPassword temporanea: ${result.temporaryPassword}`
+      );
+
+      setAthleteName('');
+      setAthleteEmail('');
+      setAthletePlan('');
+      setAthleteGoal('');
+      setAthleteCheck('');
+      setShowNewAthlete(false);
+    } catch (creationError) {
+      console.error('Errore:', creationError);
+
+      alert(
+        'Errore imprevisto durante la creazione dell’allievo.'
+      );
+    } finally {
+      setCreatingAthlete(false);
     }
+  };
 
-    alert(
-      `Allievo creato correttamente!\n\nEmail: ${athleteEmail}\nPassword temporanea: ${result.temporaryPassword}`
-    );
-
-    setAthleteName('');
-    setAthleteEmail('');
-    setAthletePlan('');
-    setAthleteGoal('');
-    setAthleteCheck('');
-    setShowNewAthlete(false);
-  } catch (error) {
-    console.error('Errore:', error);
-    alert('Errore imprevisto durante la creazione dell’allievo.');
-  }
-};
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#090A0A] text-white">
@@ -165,6 +258,7 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
           <div className="text-sm font-black uppercase tracking-[0.3em] text-[#D6A62E]">
             Ivan Fit
           </div>
+
           <div className="mt-4 text-sm text-white/40">
             Caricamento...
           </div>
@@ -274,26 +368,42 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
           </header>
 
           <section className="mt-8 grid gap-4 sm:grid-cols-3">
-            {[
-              ['Allievi attivi', '18'],
-              ['Check questa settimana', '6'],
-              ['Aderenza media', '91%'],
-            ].map(([a, b]) => (
-              <div
-                key={a}
-                className="rounded-[2rem] border border-white/10 bg-[#151515] p-6"
-              >
-                <div className="text-sm text-white/45">{a}</div>
-                <div className="mt-2 text-4xl font-black text-[#D6A62E]">
-                  {b}
-                </div>
+            <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
+              <div className="text-sm text-white/45">
+                Allievi attivi
               </div>
-            ))}
+
+              <div className="mt-2 text-4xl font-black text-[#D6A62E]">
+                {coachAthletes.length}
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
+              <div className="text-sm text-white/45">
+                Check questa settimana
+              </div>
+
+              <div className="mt-2 text-4xl font-black text-[#D6A62E]">
+                —
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
+              <div className="text-sm text-white/45">
+                Aderenza media
+              </div>
+
+              <div className="mt-2 text-4xl font-black text-[#D6A62E]">
+                —
+              </div>
+            </div>
           </section>
 
           <section className="mt-8">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-2xl font-black">Allievi</h2>
+            <div className="mb-4 flex items-center justify-between gap-4">
+              <h2 className="text-2xl font-black">
+                Allievi
+              </h2>
 
               <button
                 onClick={() => setShowNewAthlete(true)}
@@ -303,26 +413,44 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
               </button>
             </div>
 
-            <div className="space-y-3">
-              {athletes.map((a) => (
-                <div
-                  key={a.id}
-                  className="grid gap-3 rounded-[1.5rem] border border-white/10 bg-[#151515] p-5 md:grid-cols-[1fr_1fr_120px_160px] md:items-center"
-                >
-                  <div className="font-black">{a.name}</div>
-                  <div className="text-sm text-white/55">{a.plan}</div>
-
-                  <div className="text-sm">
-                    <span className="text-white/35">Aderenza </span>
-                    {a.adherence}
-                  </div>
-
-                  <div className="text-sm text-[#D6A62E]">
-                    Check: {a.nextCheck}
-                  </div>
+            {athletesLoading ? (
+              <div className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-5 text-sm text-white/40">
+                Caricamento allievi...
+              </div>
+            ) : coachAthletes.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-6">
+                <div className="font-black">
+                  Nessun allievo attivo
                 </div>
-              ))}
-            </div>
+
+                <div className="mt-2 text-sm text-white/40">
+                  Crea il primo allievo con il pulsante in alto.
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {coachAthletes.map((athlete) => (
+                  <div
+                    key={athlete.id}
+                    className="flex items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#151515] p-5"
+                  >
+                    <div>
+                      <div className="font-black">
+                        {athlete.full_name}
+                      </div>
+
+                      <div className="mt-1 text-sm text-white/35">
+                        Allievo attivo
+                      </div>
+                    </div>
+
+                    <div className="text-sm font-bold text-[#D6A62E]">
+                      ATTIVO
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
 
@@ -334,9 +462,11 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <div className="text-xs font-black uppercase tracking-[0.25em] text-[#D6A62E]">
                     Ivan Fit
                   </div>
+
                   <h2 className="mt-2 text-3xl font-black">
                     Nuovo allievo
                   </h2>
+
                   <p className="mt-2 text-sm text-white/40">
                     Inserisci i dati del nuovo cliente.
                   </p>
@@ -359,9 +489,12 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
                     Nome e cognome
                   </label>
+
                   <input
                     value={athleteName}
-                    onChange={(e) => setAthleteName(e.target.value)}
+                    onChange={(e) =>
+                      setAthleteName(e.target.value)
+                    }
                     required
                     placeholder="Es. Mario Rossi"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
@@ -372,10 +505,13 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
                     Email
                   </label>
+
                   <input
                     type="email"
                     value={athleteEmail}
-                    onChange={(e) => setAthleteEmail(e.target.value)}
+                    onChange={(e) =>
+                      setAthleteEmail(e.target.value)
+                    }
                     required
                     placeholder="mario@email.it"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
@@ -386,17 +522,30 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
                     Piano
                   </label>
+
                   <select
                     value={athletePlan}
-                    onChange={(e) => setAthletePlan(e.target.value)}
+                    onChange={(e) =>
+                      setAthletePlan(e.target.value)
+                    }
                     required
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
                   >
-                    <option value="">Seleziona piano</option>
-                    <option value="Premium 90">Premium 90</option>
-                    <option value="Autonomy 90">Autonomy 90</option>
-                    <option value="Duo 90">Duo 90</option>
-                    <option value="Personal">Personal</option>
+                    <option value="">
+                      Seleziona piano
+                    </option>
+                    <option value="Premium 90">
+                      Premium 90
+                    </option>
+                    <option value="Autonomy 90">
+                      Autonomy 90
+                    </option>
+                    <option value="Duo 90">
+                      Duo 90
+                    </option>
+                    <option value="Personal">
+                      Personal
+                    </option>
                   </select>
                 </div>
 
@@ -404,9 +553,12 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
                     Obiettivo
                   </label>
+
                   <textarea
                     value={athleteGoal}
-                    onChange={(e) => setAthleteGoal(e.target.value)}
+                    onChange={(e) =>
+                      setAthleteGoal(e.target.value)
+                    }
                     placeholder="Es. aumento forza, ricomposizione corporea..."
                     className="mt-2 min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
                   />
@@ -416,19 +568,25 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
                     Prossimo check
                   </label>
+
                   <input
                     type="date"
                     value={athleteCheck}
-                    onChange={(e) => setAthleteCheck(e.target.value)}
+                    onChange={(e) =>
+                      setAthleteCheck(e.target.value)
+                    }
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
                   />
                 </div>
 
                 <button
                   type="submit"
-                  className="w-full rounded-full bg-[#D6A62E] py-4 font-black text-black"
+                  disabled={creatingAthlete}
+                  className="w-full rounded-full bg-[#D6A62E] py-4 font-black text-black disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  CREA ALLIEVO →
+                  {creatingAthlete
+                    ? 'CREAZIONE...'
+                    : 'CREA ALLIEVO →'}
                 </button>
               </form>
             </div>
@@ -500,14 +658,24 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-5">
-                <div className="text-xs text-white/35">Peso</div>
-                <div className="mt-2 text-2xl font-black">61,7 kg</div>
+                <div className="text-xs text-white/35">
+                  Peso
+                </div>
+                <div className="mt-2 text-2xl font-black">
+                  61,7 kg
+                </div>
               </div>
 
               <div className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-5">
-                <div className="text-xs text-white/35">Squat</div>
-                <div className="mt-2 text-2xl font-black">80 × 8</div>
-                <div className="mt-1 text-xs text-[#D6A62E]">+5 kg</div>
+                <div className="text-xs text-white/35">
+                  Squat
+                </div>
+                <div className="mt-2 text-2xl font-black">
+                  80 × 8
+                </div>
+                <div className="mt-1 text-xs text-[#D6A62E]">
+                  +5 kg
+                </div>
               </div>
             </div>
 
@@ -515,6 +683,7 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
               <div className="text-xs uppercase text-white/35">
                 Prossimo check
               </div>
+
               <div className="mt-2 text-xl font-black">
                 24 settembre
               </div>
@@ -530,7 +699,9 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
 
         {tab === 'progress' && (
           <div className="mt-9">
-            <h1 className="text-4xl font-black">Progressi</h1>
+            <h1 className="text-4xl font-black">
+              Progressi
+            </h1>
 
             <p className="mt-2 text-white/50">
               Peso, misure, composizione corporea e record.
@@ -546,9 +717,15 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
                   key={a}
                   className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-5"
                 >
-                  <div className="text-sm text-white/40">{a}</div>
-                  <div className="mt-2 text-2xl font-black">{b}</div>
-                  <div className="mt-1 text-sm text-[#D6A62E]">{c}</div>
+                  <div className="text-sm text-white/40">
+                    {a}
+                  </div>
+                  <div className="mt-2 text-2xl font-black">
+                    {b}
+                  </div>
+                  <div className="mt-1 text-sm text-[#D6A62E]">
+                    {c}
+                  </div>
                 </div>
               ))}
             </div>
@@ -557,7 +734,9 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
 
         {tab === 'profile' && (
           <div className="mt-9">
-            <h1 className="text-4xl font-black">Profilo</h1>
+            <h1 className="text-4xl font-black">
+              Profilo
+            </h1>
 
             <div className="mt-7 rounded-[2rem] border border-white/10 bg-[#151515] p-6">
               <div className="text-2xl font-black">
@@ -569,7 +748,9 @@ const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
               </div>
 
               <div className="mt-6 space-y-3 text-sm text-white/55">
-                <p>Obiettivo: forza e composizione corporea</p>
+                <p>
+                  Obiettivo: forza e composizione corporea
+                </p>
                 <p>Coach: Ivan Cecchetti</p>
                 <p>Prossimo check: 24 settembre</p>
               </div>
