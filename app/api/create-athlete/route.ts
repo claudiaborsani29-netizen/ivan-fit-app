@@ -109,13 +109,16 @@ export async function POST(request: Request) {
     const athleteId = createdUser.user.id;
 
     // Creiamo il profilo dell'allievo.
-    const { error: profileError } = await supabaseAdmin
-      .from('profiles')
-      .upsert({
-        id: athleteId,
-        full_name: name,
-        role: 'athlete',
-      });
+const { error: profileError } = await supabaseAdmin
+  .from('profiles')
+  .upsert({
+    id: athleteId,
+    full_name: name,
+    role: 'athlete',
+    plan: plan || null,
+    goal: goal || null,
+    next_check: nextCheck || null,
+  });
 
     if (profileError) {
       await supabaseAdmin.auth.admin.deleteUser(athleteId);

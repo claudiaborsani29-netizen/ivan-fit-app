@@ -17,6 +17,9 @@ type Profile = {
 type CoachAthlete = {
   id: string;
   full_name: string;
+  plan: string | null;
+  goal: string | null;
+  next_check: string | null;
 };
 
 export default function Home() {
@@ -90,7 +93,7 @@ export default function Home() {
       // Poi leggiamo i profili degli allievi collegati.
       const { data: athleteProfiles, error: athletesError } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, plan, goal, next_check')
         .in('id', athleteIds);
 
       if (athletesError) {
@@ -434,19 +437,35 @@ export default function Home() {
                     key={athlete.id}
                     className="flex items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#151515] p-5"
                   >
-                    <div>
-                      <div className="font-black">
-                        {athlete.full_name}
-                      </div>
+<div>
+  <div className="font-black">
+    {athlete.full_name}
+  </div>
 
-                      <div className="mt-1 text-sm text-white/35">
-                        Allievo attivo
-                      </div>
-                    </div>
+  <div className="mt-1 text-sm text-white/40">
+    {athlete.plan || 'Piano non assegnato'}
+  </div>
 
-                    <div className="text-sm font-bold text-[#D6A62E]">
-                      ATTIVO
-                    </div>
+  {athlete.goal && (
+    <div className="mt-1 text-xs text-white/30">
+      {athlete.goal}
+    </div>
+  )}
+</div>
+
+<div className="text-right">
+  <div className="text-sm font-bold text-[#D6A62E]">
+    {athlete.next_check
+      ? `Check: ${new Date(
+          `${athlete.next_check}T00:00:00`
+        ).toLocaleDateString('it-IT')}`
+      : 'Check da programmare'}
+  </div>
+
+  <div className="mt-1 text-xs text-white/30">
+    ATTIVO
+  </div>
+</div>
                   </div>
                 ))}
               </div>
