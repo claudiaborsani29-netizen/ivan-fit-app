@@ -25,6 +25,14 @@ export default function Home() {
 
   const [tab, setTab] = useState('home');
 
+  // MODALE NUOVO ALLIEVO
+  const [showNewAthlete, setShowNewAthlete] = useState(false);
+  const [athleteName, setAthleteName] = useState('');
+  const [athleteEmail, setAthleteEmail] = useState('');
+  const [athletePlan, setAthletePlan] = useState('');
+  const [athleteGoal, setAthleteGoal] = useState('');
+  const [athleteCheck, setAthleteCheck] = useState('');
+
   useEffect(() => {
     const loadSession = async () => {
       const {
@@ -97,6 +105,22 @@ export default function Home() {
     setEmail('');
     setPassword('');
     setTab('home');
+  };
+
+  const handleNewAthlete = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    // Per ora controlliamo soltanto che il modulo funzioni.
+    // Nel prossimo passaggio lo colleghiamo realmente a Supabase.
+    console.log({
+      athleteName,
+      athleteEmail,
+      athletePlan,
+      athleteGoal,
+      athleteCheck,
+    });
+
+    alert('Modulo funzionante! Ora possiamo collegarlo a Supabase.');
   };
 
   if (loading) {
@@ -236,7 +260,10 @@ export default function Home() {
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-2xl font-black">Allievi</h2>
 
-              <button className="rounded-full bg-[#D6A62E] px-5 py-3 text-sm font-black text-black">
+              <button
+                onClick={() => setShowNewAthlete(true)}
+                className="rounded-full bg-[#D6A62E] px-5 py-3 text-sm font-black text-black"
+              >
                 + Nuovo allievo
               </button>
             </div>
@@ -263,6 +290,115 @@ export default function Home() {
             </div>
           </section>
         </div>
+
+        {showNewAthlete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 px-5">
+            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[2rem] border border-white/10 bg-[#151515] p-6">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-[0.25em] text-[#D6A62E]">
+                    Ivan Fit
+                  </div>
+                  <h2 className="mt-2 text-3xl font-black">
+                    Nuovo allievo
+                  </h2>
+                  <p className="mt-2 text-sm text-white/40">
+                    Inserisci i dati del nuovo cliente.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowNewAthlete(false)}
+                  className="rounded-full border border-white/10 px-3 py-2 text-sm text-white/60"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form
+                onSubmit={handleNewAthlete}
+                className="mt-7 space-y-5"
+              >
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
+                    Nome e cognome
+                  </label>
+                  <input
+                    value={athleteName}
+                    onChange={(e) => setAthleteName(e.target.value)}
+                    required
+                    placeholder="Es. Mario Rossi"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={athleteEmail}
+                    onChange={(e) => setAthleteEmail(e.target.value)}
+                    required
+                    placeholder="mario@email.it"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
+                    Piano
+                  </label>
+                  <select
+                    value={athletePlan}
+                    onChange={(e) => setAthletePlan(e.target.value)}
+                    required
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
+                  >
+                    <option value="">Seleziona piano</option>
+                    <option value="Premium 90">Premium 90</option>
+                    <option value="Autonomy 90">Autonomy 90</option>
+                    <option value="Duo 90">Duo 90</option>
+                    <option value="Personal">Personal</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
+                    Obiettivo
+                  </label>
+                  <textarea
+                    value={athleteGoal}
+                    onChange={(e) => setAthleteGoal(e.target.value)}
+                    placeholder="Es. aumento forza, ricomposizione corporea..."
+                    className="mt-2 min-h-24 w-full resize-none rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/40">
+                    Prossimo check
+                  </label>
+                  <input
+                    type="date"
+                    value={athleteCheck}
+                    onChange={(e) => setAthleteCheck(e.target.value)}
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-[#090A0A] px-4 py-4 outline-none focus:border-[#D6A62E]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-full bg-[#D6A62E] py-4 font-black text-black"
+                >
+                  CREA ALLIEVO →
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
       </main>
     );
   }
