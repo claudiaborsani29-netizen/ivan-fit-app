@@ -107,22 +107,57 @@ export default function Home() {
     setTab('home');
   };
 
-  const handleNewAthlete = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+const handleNewAthlete = async (e: FormEvent<HTMLFormElement>) => {
+  e.preventDefault();
 
-    // Per ora controlliamo soltanto che il modulo funzioni.
-    // Nel prossimo passaggio lo colleghiamo realmente a Supabase.
-    console.log({
-      athleteName,
-      athleteEmail,
-      athletePlan,
-      athleteGoal,
-      athleteCheck,
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      alert('Sessione scaduta. Esci e accedi nuovamente.');
+      return;
+    }
+
+    const response = await fetch('/api/create-athlete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        name: athleteName,
+        email: athleteEmail,
+        plan: athletePlan,
+        goal: athleteGoal,
+        nextCheck: athleteCheck,
+      }),
     });
 
-    alert('Modulo funzionante! Ora possiamo collegarlo a Supabase.');
-  };
+    const result = await response.json();
 
+    if (!response.ok) {
+      console.error('Errore creazione allievo:', result);
+      alert(result.error || 'Errore durante la creazione dell’allievo.');
+      return;
+    }
+
+    alert(
+      `Allievo creato correttamente!\n\nEmail: ${athleteEmail}\nPassword temporanea: ${result.temporaryPassword}`
+    );
+
+    setAthleteName('');
+    setAthleteEmail('');
+    setAthletePlan('');
+    setAthleteGoal('');
+    setAthleteCheck('');
+    setShowNewAthlete(false);
+  } catch (error) {
+    console.error('Errore:', error);
+    alert('Errore imprevisto durante la creazione dell’allievo.');
+  }
+};
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#090A0A] text-white">
