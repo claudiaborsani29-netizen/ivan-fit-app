@@ -1,7 +1,47 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+
+type Exercise = {
+  id: string;
+  name: string;
+  muscle_group: string;
+  description: string | null;
+};
+
+type SessionExercise = {
+  localId: string;
+  section: 'warmup' | 'workout';
+  muscleGroup: string;
+  exerciseId: string;
+  sets: string;
+  reps: string;
+  rest: string;
+  notes: string;
+  week1: string;
+  week2: string;
+  week3: string;
+  week4: string;
+};
+
+const emptyExercise = (
+  section: 'warmup' | 'workout'
+): SessionExercise => ({
+  localId: `${Date.now()}-${Math.random()}`,
+  section,
+  muscleGroup: section === 'warmup' ? 'Mobilità' : '',
+  exerciseId: '',
+  sets: '',
+  reps: '',
+  rest: '',
+  notes: '',
+  week1: '',
+  week2: '',
+  week3: '',
+  week4: '',
+});
 
 export default function WorkoutsPage() {
   const params = useParams();
@@ -10,19 +50,374 @@ export default function WorkoutsPage() {
   const athleteId = params.id as string;
 
   const [creatingSession, setCreatingSession] = useState(false);
+
   const [sessionName, setSessionName] = useState('Seduta A');
   const [focus, setFocus] = useState('');
   const [cardio, setCardio] = useState('');
+
+  const [catalog, setCatalog] = useState<Exercise[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState('');
+
+  const [sessionExercises, setSessionExercises] = useState<
+    SessionExercise[]
+  >([]);
+
+  useEffect(() => {
+    const loadExercises = async () => {
+      try {
+        setCatalogLoading(true);
+        setCatalogError('');
+
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          router.push('/');
+          return;
+        }
+
+        const response = await fetch('/api/exercises', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || 'Errore caricamento esercizi.'
+          );
+        }
+
+        setCatalog(result.exercises ?? []);
+      } catch (error) {
+        setCatalogError(
+          error instanceof Error
+            ? error.message
+            : 'Errore caricamento esercizi.'
+        );
+      } finally {
+        setCatalogLoading(false);
+      }
+    };
+
+    loadExercises();
+  }, [router]);
+
+  const muscleGroups = useMemo(() => {
+    return Array.from(
+      new Set(
+        catalog
+          .map((exercise) => exercise.muscle_group)
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'it'));
+  }, [catalog]);
 
   const openNewSession = () => {
     setSessionName('Seduta A');
     setFocus('');
     setCardio('');
+    setSessionExercises([]);
     setCreatingSession(true);
   };
 
   const closeNewSession = () => {
     setCreatingSession(false);
+  };
+
+  const addExercise = (section: 'warmup' | 'workout') => {
+    setSessionExercises((current) => [
+      ...current,
+      emptyExercise(section),
+    ]);
+  };
+
+  const updateExercise = (
+    localId: string,
+    field: keyof SessionExercise,
+    value: string
+  ) => {
+    setSessionExercises((current) =>
+      current.map((exercise) => {
+        if (exercise.localId !== localId) {
+          return exercise;
+        }
+
+        if (field === 'muscleGroup') {
+          return {
+            ...exercise,
+            muscleGroup: value,
+            exerciseId: '',
+          };
+        }
+
+        return {
+          ...exercise,
+          [field]: value,
+        };
+      })
+    );
+  };
+
+  const removeExercise = (localId: string) => {
+    setSessionExercises((current) =>
+      current.filter(
+        (exercise) => exercise.localId !== localId
+      )
+    );
+  };
+
+  const warmupExercises = sessionExercises.filter(
+    (exercise) => exercise.section === 'warmup'
+  );
+
+  const workoutExercises = sessionExercises.filter(
+    (exercise) => exercise.section === 'workout'
+  );
+
+  const renderExerciseEditor = (
+    exercise: SessionExercise,
+    index: number
+  ) => {
+    const availableExercises = catalog.filter(
+      (catalogExercise) =>
+        catalogExercise.muscle_group === exercise.muscleGroup
+    );
+
+    return (
+      <div
+        key={exercise.localId}
+        className="rounded-[1.5rem] border border-white/10 bg-[#151515] p-5"
+      >
+        <div className="flex items-center justify-between gap-4">
+          <div className="text-sm font-black text-[#D6A62E]">
+            Esercizio {index + 1}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => removeExercise(exercise.localId)}
+            className="text-xs font-bold text-white/35 transition hover:text-red-400"
+          >
+            Rimuovi
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+              Gruppo muscolare
+            </label>
+
+            <select
+              value={exercise.muscleGroup}
+              onChange={(event) =>
+                updateExercise(
+                  exercise.localId,
+                  'muscleGroup',
+                  event.target.value
+                )
+              }
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
+            >
+              <option value="">Seleziona gruppo</option>
+
+              {muscleGroups.map((group) => (
+                <option key={group} value={group}>
+                  {group}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+              Esercizio
+            </label>
+
+            <select
+              value={exercise.exerciseId}
+              onChange={(event) =>
+                updateExercise(
+                  exercise.localId,
+                  'exerciseId',
+                  event.target.value
+                )
+              }
+              disabled={!exercise.muscleGroup}
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E] disabled:opacity-40"
+            >
+              <option value="">
+                {exercise.muscleGroup
+                  ? 'Seleziona esercizio'
+                  : 'Prima scegli il gruppo'}
+              </option>
+
+              {availableExercises.map((catalogExercise) => (
+                <option
+                  key={catalogExercise.id}
+                  value={catalogExercise.id}
+                >
+                  {catalogExercise.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+              Serie
+            </label>
+
+            <input
+              type="text"
+              value={exercise.sets}
+              onChange={(event) =>
+                updateExercise(
+                  exercise.localId,
+                  'sets',
+                  event.target.value
+                )
+              }
+              placeholder="Es. 4"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+              Ripetizioni / durata
+            </label>
+
+            <input
+              type="text"
+              value={exercise.reps}
+              onChange={(event) =>
+                updateExercise(
+                  exercise.localId,
+                  'reps',
+                  event.target.value
+                )
+              }
+              placeholder="Es. 8-10"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+              Recupero
+            </label>
+
+            <input
+              type="text"
+              value={exercise.rest}
+              onChange={(event) =>
+                updateExercise(
+                  exercise.localId,
+                  'rest',
+                  event.target.value
+                )
+              }
+              placeholder="Es. 90 sec"
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <label className="text-xs font-bold uppercase tracking-[0.12em] text-white/40">
+            Note tecniche
+          </label>
+
+          <textarea
+            value={exercise.notes}
+            onChange={(event) =>
+              updateExercise(
+                exercise.localId,
+                'notes',
+                event.target.value
+              )
+            }
+            placeholder="Indicazioni tecniche, tempo, esecuzione..."
+            rows={2}
+            className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+          />
+        </div>
+
+        {exercise.section === 'workout' && (
+          <div className="mt-5">
+            <div className="text-xs font-black uppercase tracking-[0.15em] text-[#D6A62E]">
+              Progressione
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <input
+                type="text"
+                value={exercise.week1}
+                onChange={(event) =>
+                  updateExercise(
+                    exercise.localId,
+                    'week1',
+                    event.target.value
+                  )
+                }
+                placeholder="S1 - Es. 4x8 RIR3"
+                className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+              />
+
+              <input
+                type="text"
+                value={exercise.week2}
+                onChange={(event) =>
+                  updateExercise(
+                    exercise.localId,
+                    'week2',
+                    event.target.value
+                  )
+                }
+                placeholder="S2"
+                className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+              />
+
+              <input
+                type="text"
+                value={exercise.week3}
+                onChange={(event) =>
+                  updateExercise(
+                    exercise.localId,
+                    'week3',
+                    event.target.value
+                  )
+                }
+                placeholder="S3"
+                className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+              />
+
+              <input
+                type="text"
+                value={exercise.week4}
+                onChange={(event) =>
+                  updateExercise(
+                    exercise.localId,
+                    'week4',
+                    event.target.value
+                  )
+                }
+                placeholder="S4 / Scarico"
+                className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -60,6 +455,12 @@ export default function WorkoutsPage() {
           </button>
         </header>
 
+        {catalogError && (
+          <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+            {catalogError}
+          </div>
+        )}
+
         {creatingSession && (
           <section className="mt-8 rounded-[2rem] border border-[#D6A62E]/30 bg-[#151515] p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -95,7 +496,7 @@ export default function WorkoutsPage() {
                     setSessionName(event.target.value)
                   }
                   placeholder="Es. Seduta A"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
                 />
               </div>
 
@@ -107,9 +508,11 @@ export default function WorkoutsPage() {
                 <input
                   type="text"
                   value={focus}
-                  onChange={(event) => setFocus(event.target.value)}
+                  onChange={(event) =>
+                    setFocus(event.target.value)
+                  }
                   placeholder="Es. Lower - focus glutei + spinta d'anca"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
                 />
               </div>
             </div>
@@ -128,17 +531,27 @@ export default function WorkoutsPage() {
 
                 <button
                   type="button"
-                  disabled
-                  className="rounded-full border border-white/10 px-4 py-2 text-sm font-bold text-white/30"
+                  onClick={() => addExercise('warmup')}
+                  disabled={catalogLoading}
+                  className="rounded-full border border-[#D6A62E]/40 px-4 py-2 text-sm font-bold text-[#D6A62E] transition hover:bg-[#D6A62E]/10 disabled:opacity-40"
                 >
-                  + Aggiungi esercizio
+                  {catalogLoading
+                    ? 'Caricamento...'
+                    : '+ Aggiungi esercizio'}
                 </button>
               </div>
 
-              <p className="mt-3 text-sm leading-6 text-white/40">
-                Qui inseriremo esercizio, serie, durata o
-                ripetizioni e indicazioni tecniche.
-              </p>
+              {warmupExercises.length === 0 ? (
+                <p className="mt-3 text-sm leading-6 text-white/40">
+                  Nessun esercizio di riscaldamento inserito.
+                </p>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {warmupExercises.map((exercise, index) =>
+                    renderExerciseEditor(exercise, index)
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
@@ -155,58 +568,27 @@ export default function WorkoutsPage() {
 
                 <button
                   type="button"
-                  disabled
-                  className="rounded-full border border-white/10 px-4 py-2 text-sm font-bold text-white/30"
+                  onClick={() => addExercise('workout')}
+                  disabled={catalogLoading}
+                  className="rounded-full border border-[#D6A62E]/40 px-4 py-2 text-sm font-bold text-[#D6A62E] transition hover:bg-[#D6A62E]/10 disabled:opacity-40"
                 >
-                  + Aggiungi esercizio
+                  {catalogLoading
+                    ? 'Caricamento...'
+                    : '+ Aggiungi esercizio'}
                 </button>
               </div>
 
-              <div className="mt-5 overflow-x-auto">
-                <div className="min-w-[820px]">
-                  <div className="grid grid-cols-[1.6fr_.6fr_.8fr_.8fr_1.2fr] gap-3 border-b border-white/10 pb-3 text-xs font-black uppercase tracking-[0.1em] text-white/30">
-                    <div>Esercizio</div>
-                    <div>Serie</div>
-                    <div>Ripetizioni</div>
-                    <div>Recupero</div>
-                    <div>Note</div>
-                  </div>
-
-                  <div className="py-6 text-center text-sm text-white/30">
-                    Nessun esercizio inserito.
-                  </div>
+              {workoutExercises.length === 0 ? (
+                <p className="mt-3 text-sm leading-6 text-white/40">
+                  Nessun esercizio inserito.
+                </p>
+              ) : (
+                <div className="mt-5 space-y-4">
+                  {workoutExercises.map((exercise, index) =>
+                    renderExerciseEditor(exercise, index)
+                  )}
                 </div>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
-              <div className="text-xs font-black uppercase tracking-[0.15em] text-[#D6A62E]">
-                Progressione
-              </div>
-
-              <h3 className="mt-2 text-xl font-black">
-                Programmazione settimanale
-              </h3>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {['S1', 'S2', 'S3', 'S4 / Scarico'].map(
-                  (week) => (
-                    <div
-                      key={week}
-                      className="rounded-2xl border border-white/10 bg-[#151515] p-4"
-                    >
-                      <div className="text-sm font-black text-[#D6A62E]">
-                        {week}
-                      </div>
-
-                      <div className="mt-2 text-xs text-white/30">
-                        La progressione verrà impostata per ogni
-                        esercizio.
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
+              )}
             </div>
 
             <div className="mt-4">
@@ -216,10 +598,12 @@ export default function WorkoutsPage() {
 
               <textarea
                 value={cardio}
-                onChange={(event) => setCardio(event.target.value)}
+                onChange={(event) =>
+                  setCardio(event.target.value)
+                }
                 placeholder="Es. Tapis roulant 15 minuti - inclinazione 8%, velocità 5 km/h"
                 rows={3}
-                className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
+                className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none focus:border-[#D6A62E]"
               />
             </div>
 
