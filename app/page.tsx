@@ -65,50 +65,43 @@ export default function Home() {
     return loadedProfile;
   };
 
-  const loadCoachAthletes = async (coachId: string) => {
-    setAthletesLoading(true);
+ const loadCoachAthletes = async (_coachId: string) => {
+  setAthletesLoading(true);
 
-    try {
-      // Prima recuperiamo le relazioni coach -> allievi.
-      const { data: relations, error: relationsError } = await supabase
-        .from('coach_athletes')
-        .select('athlete_id')
-        .eq('coach_id', coachId)
-        .eq('active', true);
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-      if (relationsError) {
-        console.error('Errore relazioni coach/allievi:', relationsError);
-        setCoachAthletes([]);
-        return;
-      }
-
-      const athleteIds =
-        relations?.map((relation) => relation.athlete_id) ?? [];
-
-      if (athleteIds.length === 0) {
-        setCoachAthletes([]);
-        return;
-      }
-
-      // Poi leggiamo i profili degli allievi collegati.
-      const { data: athleteProfiles, error: athletesError } = await supabase
-        .from('profiles')
-        .select('id, full_name, plan, goal, next_check')
-        .in('id', athleteIds);
-
-      if (athletesError) {
-        console.error('Errore caricamento allievi:', athletesError);
-        setCoachAthletes([]);
-        return;
-      }
-
-      setCoachAthletes((athleteProfiles ?? []) as CoachAthlete[]);
-    } finally {
-      setAthletesLoading(false);
+    if (!session?.access_token) {
+      console.error('Sessione non disponibile.');
+      setCoachAthletes([]);
+      return;
     }
-  };
 
-  useEffect(() => {
+    const response = await fetch('/api/coach-athletes', {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error('Errore caricamento allievi:', result);
+      setCoachAthletes([]);
+      return;
+    }
+
+    setCoachAthletes(result.athletes ?? []);
+  } catch (error) {
+    console.error('Errore caricamento allievi:', error);
+    setCoachAthletes([]);
+  } finally {
+    setAthletesLoading(false);
+  }
+};
     const loadSession = async () => {
       const {
         data: { session },
