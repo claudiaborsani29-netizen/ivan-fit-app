@@ -102,6 +102,7 @@ export default function Home() {
     setAthletesLoading(false);
   }
 };
+ useEffect(() => {
     const loadSession = async () => {
       const {
         data: { session },
