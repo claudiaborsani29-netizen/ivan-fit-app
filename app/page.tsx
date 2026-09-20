@@ -426,11 +426,14 @@ export default function Home() {
               </div>
             ) : (
               <div className="space-y-3">
-                {coachAthletes.map((athlete) => (
-                  <div
-                    key={athlete.id}
-                    className="flex items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#151515] p-5"
-                  >
+             {coachAthletes.map((athlete) => (
+  <div
+    key={athlete.id}
+    onClick={() => {
+      window.location.href = `/athletes/${athlete.id}`;
+    }}
+    className="flex cursor-pointer items-center justify-between gap-4 rounded-[1.5rem] border border-white/10 bg-[#151515] p-5 transition hover:border-[#D6A62E]/40 hover:bg-white/[0.06]"
+  >  
 <div>
   <div className="font-black">
     {athlete.full_name}
