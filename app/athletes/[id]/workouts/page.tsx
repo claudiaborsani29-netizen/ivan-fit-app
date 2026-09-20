@@ -58,6 +58,9 @@ export default function WorkoutsPage() {
   const [catalog, setCatalog] = useState<Exercise[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+  const [saving, setSaving] = useState(false);
+const [saveError, setSaveError] = useState('');
+const [saved, setSaved] = useState(false);
 
   const [sessionExercises, setSessionExercises] = useState<
     SessionExercise[]
@@ -170,7 +173,89 @@ export default function WorkoutsPage() {
       )
     );
   };
+const saveSession = async () => {
+  try {
+    setSaving(true);
+    setSaveError('');
+    setSaved(false);
 
+    if (!sessionName.trim()) {
+      setSaveError('Inserisci il nome della seduta.');
+      return;
+    }
+
+    const selectedExercises = sessionExercises.filter(
+      (exercise) => exercise.exerciseId
+    );
+
+    if (selectedExercises.length === 0) {
+      setSaveError('Inserisci almeno un esercizio.');
+      return;
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session) {
+      router.push('/');
+      return;
+    }
+
+    const response = await fetch('/api/workout-sessions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        athleteId,
+        name: sessionName,
+        focus,
+        cardio,
+        exercises: selectedExercises.map((exercise) => ({
+          exerciseId: exercise.exerciseId,
+          section: exercise.section,
+          sets: exercise.sets,
+          reps: exercise.reps,
+          rest: exercise.rest,
+          notes: exercise.notes,
+          week1: exercise.week1,
+          week2: exercise.week2,
+          week3: exercise.week3,
+          week4: exercise.week4,
+        })),
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        result.error || 'Errore durante il salvataggio.'
+      );
+    }
+
+    setSaved(true);
+
+    setTimeout(() => {
+      setCreatingSession(false);
+      setSaved(false);
+      setSessionExercises([]);
+      setSessionName('Seduta A');
+      setFocus('');
+      setCardio('');
+    }, 1000);
+  } catch (error) {
+    setSaveError(
+      error instanceof Error
+        ? error.message
+        : 'Errore durante il salvataggio.'
+    );
+  } finally {
+    setSaving(false);
+  }
+};
   const warmupExercises = sessionExercises.filter(
     (exercise) => exercise.section === 'warmup'
   );
@@ -616,13 +701,32 @@ export default function WorkoutsPage() {
                 Annulla
               </button>
 
-              <button
-                type="button"
-                disabled
-                className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black opacity-40"
-              >
-                Salva Seduta
-              </button>
+<div className="flex flex-col items-end gap-2">
+  {saveError && (
+    <div className="text-sm font-bold text-red-400">
+      {saveError}
+    </div>
+  )}
+
+  {saved && (
+    <div className="text-sm font-bold text-green-400">
+      Seduta salvata ✓
+    </div>
+  )}
+
+  <button
+    type="button"
+    onClick={saveSession}
+    disabled={saving || saved}
+    className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+  >
+    {saving
+      ? 'Salvataggio...'
+      : saved
+        ? 'Salvata ✓'
+        : 'Salva Seduta'}
+  </button>
+</div>
             </div>
           </section>
         )}
@@ -673,4 +777,4 @@ export default function WorkoutsPage() {
       </div>
     </main>
   );
-}
+}f
