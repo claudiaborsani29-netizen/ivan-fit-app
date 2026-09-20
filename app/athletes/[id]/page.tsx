@@ -317,15 +317,31 @@ export default function AthletePage() {
         )}
 
         <section className="mt-8 grid gap-4 md:grid-cols-3">
-          <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
-            <div className="text-xs font-bold uppercase tracking-[0.15em] text-white/35">
-              Piano
-            </div>
+<button
+  type="button"
+  onClick={() =>
+    router.push(`/athletes/${athlete.id}/workouts`)
+  }
+  className="w-full rounded-[2rem] border border-white/10 bg-[#151515] p-6 text-left transition hover:border-[#D6A62E]/40 hover:bg-white/[0.06]"
+>
+  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
+    Allenamenti
+  </div>
 
-            <div className="mt-3 text-xl font-black text-[#D6A62E]">
-              {athlete.plan || 'Non assegnato'}
-            </div>
-          </div>
+  <div className="mt-3 flex items-center justify-between gap-4">
+    <h2 className="text-2xl font-black">
+      Programmazione
+    </h2>
+
+    <span className="text-xl text-[#D6A62E]">
+      →
+    </span>
+  </div>
+
+  <p className="mt-2 text-sm text-white/40">
+    Crea e gestisci le sedute di allenamento dell’allievo.
+  </p>
+</button>
 
           <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
             <div className="text-xs font-bold uppercase tracking-[0.15em] text-white/35">
