@@ -248,13 +248,17 @@ export default function AthletePage() {
                   Piano
                 </label>
 
-                <input
-                  type="text"
-                  value={plan}
-                  onChange={(event) => setPlan(event.target.value)}
-                  placeholder="Es. Premium 90"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
-                />
+               <select
+  value={plan}
+  onChange={(event) => setPlan(event.target.value)}
+  className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
+>
+  <option value="">Seleziona un piano</option>
+  <option value="Starter">Starter</option>
+  <option value="Elite">Elite</option>
+  <option value="Online">Online</option>
+  <option value="Premium 90">Premium 90</option>
+</select>
               </div>
 
               <div>
