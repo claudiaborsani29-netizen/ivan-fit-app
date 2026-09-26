@@ -152,6 +152,45 @@ export default function Home() {
     setAthletesLoading(false);
   }
 };
+ const loadAthleteWorkout = async () => {
+  setAthleteWorkoutLoading(true);
+  setAthleteWorkoutError('');
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setAthleteWorkout(null);
+      return;
+    }
+
+    const response = await fetch('/api/athlete-workouts', {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      setAthleteWorkout(null);
+      setAthleteWorkoutError(
+        result.error || 'Impossibile caricare la programmazione.'
+      );
+      return;
+    }
+
+    setAthleteWorkout(result);
+    setSelectedSessionId(result.sessions?.[0]?.id ?? null);
+  } catch (error) {
+    console.error('Errore programmazione atleta:', error);
+    setAthleteWorkout(null);
+    setAthleteWorkoutError('Impossibile caricare la programmazione.');
+  } finally {
+    setAthleteWorkoutLoading(false);
+  }
+};
+
  useEffect(() => {
     const loadSession = async () => {
       const {
@@ -211,6 +250,10 @@ export default function Home() {
 
     if (loadedProfile?.role === 'coach') {
       await loadCoachAthletes(loadedProfile.id);
+    }
+
+    if (loadedProfile?.role === 'athlete') {
+      await loadAthleteWorkout();
     }
 
     setLoginLoading(false);
