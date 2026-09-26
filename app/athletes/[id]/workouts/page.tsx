@@ -85,6 +85,9 @@ export default function WorkoutsPage() {
   const athleteId = params.id as string;
 
   const [creatingSession, setCreatingSession] = useState(false);
+  const [editingSessionId, setEditingSessionId] = useState<
+    string | null
+  >(null);
   const [openedSessionId, setOpenedSessionId] = useState<
     string | null
   >(null);
@@ -241,6 +244,7 @@ export default function WorkoutsPage() {
       65 + savedSessions.length
     );
 
+    setEditingSessionId(null);
     setOpenedSessionId(null);
     setSessionName(`Seduta ${nextLetter}`);
     setFocus('');
@@ -253,17 +257,61 @@ export default function WorkoutsPage() {
 
   const closeNewSession = () => {
     setCreatingSession(false);
+    setEditingSessionId(null);
     setSaveError('');
     setSaved(false);
   };
 
   const openSavedSession = (sessionId: string) => {
+    setEditingSessionId(null);
     setCreatingSession(false);
     setOpenedSessionId(sessionId);
   };
 
   const closeSavedSession = () => {
     setOpenedSessionId(null);
+  };
+
+  const editSavedSession = (savedSession: SavedSession) => {
+    const orderedExercises = [...savedSession.exercises].sort(
+      (a, b) =>
+        (a.exercise_order ?? 0) - (b.exercise_order ?? 0)
+    );
+
+    setEditingSessionId(savedSession.id);
+    setOpenedSessionId(null);
+    setSessionName(savedSession.name);
+    setFocus(savedSession.focus ?? '');
+    setCardio(savedSession.cardio_notes ?? '');
+    setSessionExercises(
+      orderedExercises.map((exercise) => {
+        const exerciseInfo = getExerciseInfo(exercise);
+
+        return {
+          localId: exercise.id,
+          section:
+            exercise.section === 'warmup'
+              ? 'warmup'
+              : 'workout',
+          muscleGroup: exerciseInfo?.muscle_group ?? '',
+          exerciseId: exercise.exercise_id,
+          sets: exercise.sets != null ? String(exercise.sets) : '',
+          reps: exercise.target_reps ?? '',
+          rest:
+            exercise.rest_seconds != null
+              ? String(exercise.rest_seconds)
+              : '',
+          notes: exercise.notes ?? '',
+          week1: exercise.week_1 ?? '',
+          week2: exercise.week_2 ?? '',
+          week3: exercise.week_3 ?? '',
+          week4: exercise.week_4 ?? '',
+        };
+      })
+    );
+    setSaveError('');
+    setSaved(false);
+    setCreatingSession(true);
   };
 
   const addExercise = (
@@ -342,13 +390,16 @@ export default function WorkoutsPage() {
       const response = await fetch(
         '/api/workout-sessions',
         {
-          method: 'POST',
+          method: editingSessionId ? 'PATCH' : 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${session.access_token}`,
           },
           body: JSON.stringify({
             athleteId,
+            ...(editingSessionId
+              ? { workoutDayId: editingSessionId }
+              : {}),
             name: sessionName,
             focus,
             cardio,
@@ -381,14 +432,22 @@ export default function WorkoutsPage() {
 
       setSaved(true);
 
+      const savedSessionId =
+        editingSessionId || result.workoutDay?.id || null;
+
       await loadSavedSessions();
 
       setTimeout(() => {
         setCreatingSession(false);
+        setEditingSessionId(null);
         setSaved(false);
         setSessionExercises([]);
         setFocus('');
         setCardio('');
+
+        if (savedSessionId) {
+          setOpenedSessionId(savedSessionId);
+        }
       }, 1000);
     } catch (error) {
       setSaveError(
@@ -816,11 +875,15 @@ export default function WorkoutsPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
-                  Nuova seduta
+                  {editingSessionId
+                    ? 'Modifica seduta'
+                    : 'Nuova seduta'}
                 </div>
 
                 <h2 className="mt-2 text-2xl font-black">
-                  Crea la programmazione
+                  {editingSessionId
+                    ? 'Aggiorna la programmazione'
+                    : 'Crea la programmazione'}
                 </h2>
               </div>
 
@@ -984,7 +1047,9 @@ export default function WorkoutsPage() {
 
                 {saved && (
                   <div className="text-sm font-bold text-green-400">
-                    Seduta salvata ✓
+                    {editingSessionId
+                      ? 'Modifiche salvate ✓'
+                      : 'Seduta salvata ✓'}
                   </div>
                 )}
 
@@ -997,8 +1062,12 @@ export default function WorkoutsPage() {
                   {saving
                     ? 'Salvataggio...'
                     : saved
-                      ? 'Salvata ✓'
-                      : 'Salva Seduta'}
+                      ? editingSessionId
+                        ? 'Modifiche salvate ✓'
+                        : 'Salvata ✓'
+                      : editingSessionId
+                        ? 'Salva modifiche'
+                        : 'Salva Seduta'}
                 </button>
               </div>
             </div>
@@ -1034,8 +1103,10 @@ export default function WorkoutsPage() {
 
                 <button
                   type="button"
-                  disabled
-                  className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-black text-white/30"
+                  onClick={() =>
+                    editSavedSession(openedSession)
+                  }
+                  className="rounded-full border border-[#D6A62E]/40 px-5 py-2.5 text-sm font-black text-[#D6A62E] transition hover:bg-[#D6A62E]/10"
                 >
                   Modifica seduta
                 </button>
