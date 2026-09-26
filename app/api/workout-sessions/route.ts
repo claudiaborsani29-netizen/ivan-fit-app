@@ -317,3 +317,210 @@ export async function POST(request: Request) {
     );
   }
 }
+
+export async function GET(request: Request) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+
+    if (!supabaseUrl || !supabaseSecretKey) {
+      return NextResponse.json(
+        { error: 'Configurazione Supabase mancante.' },
+        { status: 500 }
+      );
+    }
+
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      supabaseSecretKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+
+    const authHeader = request.headers.get('authorization');
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Non autorizzato.' },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const {
+      data: { user: coachUser },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !coachUser) {
+      return NextResponse.json(
+        { error: 'Sessione non valida.' },
+        { status: 401 }
+      );
+    }
+
+    const { data: coachProfile, error: coachError } =
+      await supabaseAdmin
+        .from('profiles')
+        .select('id, role')
+        .eq('id', coachUser.id)
+        .single();
+
+    if (
+      coachError ||
+      !coachProfile ||
+      coachProfile.role !== 'coach'
+    ) {
+      return NextResponse.json(
+        { error: 'Operazione consentita soltanto al coach.' },
+        { status: 403 }
+      );
+    }
+
+    const url = new URL(request.url);
+    const athleteId = url.searchParams.get('athleteId');
+
+    if (!athleteId) {
+      return NextResponse.json(
+        { error: 'Allievo mancante.' },
+        { status: 400 }
+      );
+    }
+
+    // Verifica che l'allievo appartenga al coach
+    const { data: relation, error: relationError } =
+      await supabaseAdmin
+        .from('coach_athletes')
+        .select('athlete_id')
+        .eq('coach_id', coachUser.id)
+        .eq('athlete_id', athleteId)
+        .eq('active', true)
+        .maybeSingle();
+
+    if (relationError) {
+      return NextResponse.json(
+        { error: relationError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!relation) {
+      return NextResponse.json(
+        { error: 'Allievo non trovato.' },
+        { status: 404 }
+      );
+    }
+
+    // Cerca la scheda attiva dell'allievo
+    const { data: plan, error: planError } =
+      await supabaseAdmin
+        .from('workout_plans')
+        .select('id, name')
+        .eq('coach_id', coachUser.id)
+        .eq('athlete_id', athleteId)
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (planError) {
+      return NextResponse.json(
+        { error: planError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!plan) {
+      return NextResponse.json({
+        plan: null,
+        sessions: [],
+      });
+    }
+
+    // Carica le sedute della scheda
+    const { data: days, error: daysError } =
+      await supabaseAdmin
+        .from('workout_days')
+        .select(
+          'id, name, day_order, focus, cardio_notes, created_at'
+        )
+        .eq('plan_id', plan.id)
+        .order('day_order', { ascending: true });
+
+    if (daysError) {
+      return NextResponse.json(
+        { error: daysError.message },
+        { status: 500 }
+      );
+    }
+
+    const dayIds = (days ?? []).map((day) => day.id);
+
+    if (dayIds.length === 0) {
+      return NextResponse.json({
+        plan,
+        sessions: [],
+      });
+    }
+
+    // Carica gli esercizi appartenenti alle sedute
+    const { data: dayExercises, error: exercisesError } =
+      await supabaseAdmin
+        .from('workout_day_exercises')
+        .select(`
+          id,
+          workout_day_id,
+          exercise_id,
+          exercise_order,
+          sets,
+          target_reps,
+          target_weight,
+          rest_seconds,
+          notes,
+          section,
+          week_1,
+          week_2,
+          week_3,
+          week_4,
+          exercises (
+            id,
+            name,
+            muscle_group,
+            description
+          )
+        `)
+        .in('workout_day_id', dayIds)
+        .order('exercise_order', { ascending: true });
+
+    if (exercisesError) {
+      return NextResponse.json(
+        { error: exercisesError.message },
+        { status: 500 }
+      );
+    }
+
+    const sessions = (days ?? []).map((day) => ({
+      ...day,
+      exercises: (dayExercises ?? []).filter(
+        (exercise) => exercise.workout_day_id === day.id
+      ),
+    }));
+
+    return NextResponse.json({
+      plan,
+      sessions,
+    });
+  } catch (error) {
+    console.error('Errore caricamento sedute:', error);
+
+    return NextResponse.json(
+      { error: 'Errore durante il caricamento delle sedute.' },
+      { status: 500 }
+    );
+  }
+}
