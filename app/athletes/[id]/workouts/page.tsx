@@ -26,6 +26,13 @@ type SessionExercise = {
   week4: string;
 };
 
+type SavedExerciseInfo = {
+  id: string;
+  name: string;
+  muscle_group: string;
+  description: string | null;
+};
+
 type SavedSessionExercise = {
   id: string;
   workout_day_id?: string;
@@ -41,12 +48,7 @@ type SavedSessionExercise = {
   week_2?: string | null;
   week_3?: string | null;
   week_4?: string | null;
-  exercises?: {
-    id: string;
-    name: string;
-    muscle_group: string;
-    description: string | null;
-  } | null;
+  exercises?: SavedExerciseInfo | SavedExerciseInfo[] | null;
 };
 
 type SavedSession = {
@@ -83,6 +85,9 @@ export default function WorkoutsPage() {
   const athleteId = params.id as string;
 
   const [creatingSession, setCreatingSession] = useState(false);
+  const [openedSessionId, setOpenedSessionId] = useState<
+    string | null
+  >(null);
 
   const [sessionName, setSessionName] = useState('Seduta A');
   const [focus, setFocus] = useState('');
@@ -96,10 +101,11 @@ export default function WorkoutsPage() {
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState(false);
 
-  const [savedSessions, setSavedSessions] = useState<SavedSession[]>(
-    []
-  );
-  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [savedSessions, setSavedSessions] = useState<
+    SavedSession[]
+  >([]);
+  const [sessionsLoading, setSessionsLoading] =
+    useState(true);
   const [sessionsError, setSessionsError] = useState('');
 
   const [sessionExercises, setSessionExercises] = useState<
@@ -211,11 +217,31 @@ export default function WorkoutsPage() {
     ).sort((a, b) => a.localeCompare(b, 'it'));
   }, [catalog]);
 
+  const openedSession =
+    savedSessions.find(
+      (session) => session.id === openedSessionId
+    ) ?? null;
+
+  const getExerciseInfo = (
+    exercise: SavedSessionExercise
+  ): SavedExerciseInfo | null => {
+    if (!exercise.exercises) {
+      return null;
+    }
+
+    if (Array.isArray(exercise.exercises)) {
+      return exercise.exercises[0] ?? null;
+    }
+
+    return exercise.exercises;
+  };
+
   const openNewSession = () => {
     const nextLetter = String.fromCharCode(
       65 + savedSessions.length
     );
 
+    setOpenedSessionId(null);
     setSessionName(`Seduta ${nextLetter}`);
     setFocus('');
     setCardio('');
@@ -231,7 +257,18 @@ export default function WorkoutsPage() {
     setSaved(false);
   };
 
-  const addExercise = (section: 'warmup' | 'workout') => {
+  const openSavedSession = (sessionId: string) => {
+    setCreatingSession(false);
+    setOpenedSessionId(sessionId);
+  };
+
+  const closeSavedSession = () => {
+    setOpenedSessionId(null);
+  };
+
+  const addExercise = (
+    section: 'warmup' | 'workout'
+  ) => {
     setSessionExercises((current) => [
       ...current,
       emptyExercise(section),
@@ -302,37 +339,43 @@ export default function WorkoutsPage() {
         return;
       }
 
-      const response = await fetch('/api/workout-sessions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          athleteId,
-          name: sessionName,
-          focus,
-          cardio,
-          exercises: selectedExercises.map((exercise) => ({
-            exerciseId: exercise.exerciseId,
-            section: exercise.section,
-            sets: exercise.sets,
-            reps: exercise.reps,
-            rest: exercise.rest,
-            notes: exercise.notes,
-            week1: exercise.week1,
-            week2: exercise.week2,
-            week3: exercise.week3,
-            week4: exercise.week4,
-          })),
-        }),
-      });
+      const response = await fetch(
+        '/api/workout-sessions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            athleteId,
+            name: sessionName,
+            focus,
+            cardio,
+            exercises: selectedExercises.map(
+              (exercise) => ({
+                exerciseId: exercise.exerciseId,
+                section: exercise.section,
+                sets: exercise.sets,
+                reps: exercise.reps,
+                rest: exercise.rest,
+                notes: exercise.notes,
+                week1: exercise.week1,
+                week2: exercise.week2,
+                week3: exercise.week3,
+                week4: exercise.week4,
+              })
+            ),
+          }),
+        }
+      );
 
       const result = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          result.error || 'Errore durante il salvataggio.'
+          result.error ||
+            'Errore durante il salvataggio.'
         );
       }
 
@@ -372,7 +415,8 @@ export default function WorkoutsPage() {
   ) => {
     const availableExercises = catalog.filter(
       (catalogExercise) =>
-        catalogExercise.muscle_group === exercise.muscleGroup
+        catalogExercise.muscle_group ===
+        exercise.muscleGroup
     );
 
     return (
@@ -387,7 +431,9 @@ export default function WorkoutsPage() {
 
           <button
             type="button"
-            onClick={() => removeExercise(exercise.localId)}
+            onClick={() =>
+              removeExercise(exercise.localId)
+            }
             className="text-xs font-bold text-white/35 transition hover:text-red-400"
           >
             Rimuovi
@@ -411,7 +457,9 @@ export default function WorkoutsPage() {
               }
               className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-white outline-none transition focus:border-[#D6A62E]"
             >
-              <option value="">Seleziona gruppo</option>
+              <option value="">
+                Seleziona gruppo
+              </option>
 
               {muscleGroups.map((group) => (
                 <option key={group} value={group}>
@@ -444,14 +492,16 @@ export default function WorkoutsPage() {
                   : 'Prima scegli il gruppo'}
               </option>
 
-              {availableExercises.map((catalogExercise) => (
-                <option
-                  key={catalogExercise.id}
-                  value={catalogExercise.id}
-                >
-                  {catalogExercise.name}
-                </option>
-              ))}
+              {availableExercises.map(
+                (catalogExercise) => (
+                  <option
+                    key={catalogExercise.id}
+                    value={catalogExercise.id}
+                  >
+                    {catalogExercise.name}
+                  </option>
+                )
+              )}
             </select>
           </div>
         </div>
@@ -607,12 +657,122 @@ export default function WorkoutsPage() {
     );
   };
 
+  const renderSavedExercise = (
+    exercise: SavedSessionExercise,
+    index: number
+  ) => {
+    const exerciseInfo = getExerciseInfo(exercise);
+
+    return (
+      <div
+        key={exercise.id}
+        className="rounded-[1.5rem] border border-white/10 bg-black/20 p-5"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-black uppercase tracking-[0.15em] text-[#D6A62E]">
+              Esercizio {index + 1}
+            </div>
+
+            <h4 className="mt-2 text-xl font-black">
+              {exerciseInfo?.name || 'Esercizio'}
+            </h4>
+
+            {exerciseInfo?.muscle_group && (
+              <div className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-white/35">
+                {exerciseInfo.muscle_group}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-white/10 bg-[#151515] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-white/35">
+              Serie
+            </div>
+
+            <div className="mt-2 text-lg font-black">
+              {exercise.sets ?? '—'}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-[#151515] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-white/35">
+              Ripetizioni
+            </div>
+
+            <div className="mt-2 text-lg font-black">
+              {exercise.target_reps || '—'}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-[#151515] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-white/35">
+              Recupero
+            </div>
+
+            <div className="mt-2 text-lg font-black">
+              {exercise.rest_seconds != null
+                ? `${exercise.rest_seconds} sec`
+                : '—'}
+            </div>
+          </div>
+        </div>
+
+        {exercise.notes && (
+          <div className="mt-4 rounded-2xl border border-white/10 bg-[#151515] p-4">
+            <div className="text-xs font-bold uppercase tracking-[0.12em] text-white/35">
+              Note tecniche
+            </div>
+
+            <div className="mt-2 text-sm leading-6 text-white/70">
+              {exercise.notes}
+            </div>
+          </div>
+        )}
+
+        {exercise.section === 'workout' && (
+          <div className="mt-5">
+            <div className="text-xs font-black uppercase tracking-[0.15em] text-[#D6A62E]">
+              Progressione
+            </div>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                ['S1', exercise.week_1],
+                ['S2', exercise.week_2],
+                ['S3', exercise.week_3],
+                ['S4', exercise.week_4],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-2xl border border-white/10 bg-[#151515] p-4"
+                >
+                  <div className="text-xs font-black text-[#D6A62E]">
+                    {label}
+                  </div>
+
+                  <div className="mt-2 text-sm font-bold text-white/70">
+                    {value || '—'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <main className="min-h-screen bg-[#090A0A] px-5 py-8 text-white">
       <div className="mx-auto max-w-5xl">
         <button
           type="button"
-          onClick={() => router.push(`/athletes/${athleteId}`)}
+          onClick={() =>
+            router.push(`/athletes/${athleteId}`)
+          }
           className="text-sm text-white/50 transition hover:text-white"
         >
           ← Torna alla scheda allievo
@@ -629,17 +789,20 @@ export default function WorkoutsPage() {
             </h1>
 
             <p className="mt-2 text-white/40">
-              Gestisci la scheda di allenamento dell’allievo.
+              Gestisci la scheda di allenamento
+              dell’allievo.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={openNewSession}
-            className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02]"
-          >
-            + Nuova seduta
-          </button>
+          {!openedSession && (
+            <button
+              type="button"
+              onClick={openNewSession}
+              className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02]"
+            >
+              + Nuova seduta
+            </button>
+          )}
         </header>
 
         {catalogError && (
@@ -730,12 +893,17 @@ export default function WorkoutsPage() {
 
               {warmupExercises.length === 0 ? (
                 <p className="mt-3 text-sm leading-6 text-white/40">
-                  Nessun esercizio di riscaldamento inserito.
+                  Nessun esercizio di riscaldamento
+                  inserito.
                 </p>
               ) : (
                 <div className="mt-5 space-y-4">
-                  {warmupExercises.map((exercise, index) =>
-                    renderExerciseEditor(exercise, index)
+                  {warmupExercises.map(
+                    (exercise, index) =>
+                      renderExerciseEditor(
+                        exercise,
+                        index
+                      )
                   )}
                 </div>
               )}
@@ -771,8 +939,12 @@ export default function WorkoutsPage() {
                 </p>
               ) : (
                 <div className="mt-5 space-y-4">
-                  {workoutExercises.map((exercise, index) =>
-                    renderExerciseEditor(exercise, index)
+                  {workoutExercises.map(
+                    (exercise, index) =>
+                      renderExerciseEditor(
+                        exercise,
+                        index
+                      )
                   )}
                 </div>
               )}
@@ -833,7 +1005,111 @@ export default function WorkoutsPage() {
           </section>
         )}
 
-        {!creatingSession && (
+        {!creatingSession && openedSession && (
+          <section className="mt-10">
+            <button
+              type="button"
+              onClick={closeSavedSession}
+              className="mb-5 text-sm font-bold text-[#D6A62E] transition hover:text-white"
+            >
+              ← Tutte le sedute
+            </button>
+
+            <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6 md:p-8">
+              <div className="flex flex-wrap items-start justify-between gap-5">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
+                    Seduta {openedSession.day_order}
+                  </div>
+
+                  <h2 className="mt-2 text-3xl font-black">
+                    {openedSession.name}
+                  </h2>
+
+                  <p className="mt-2 text-white/45">
+                    {openedSession.focus ||
+                      'Nessun focus specificato'}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-full border border-white/10 px-5 py-2.5 text-sm font-black text-white/30"
+                >
+                  Modifica seduta
+                </button>
+              </div>
+
+              {openedSession.exercises.filter(
+                (exercise) =>
+                  exercise.section === 'warmup'
+              ).length > 0 && (
+                <div className="mt-8">
+                  <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
+                    Riscaldamento
+                  </div>
+
+                  <h3 className="mt-2 text-xl font-black">
+                    Mobilità e preparazione
+                  </h3>
+
+                  <div className="mt-4 space-y-4">
+                    {openedSession.exercises
+                      .filter(
+                        (exercise) =>
+                          exercise.section === 'warmup'
+                      )
+                      .map((exercise, index) =>
+                        renderSavedExercise(
+                          exercise,
+                          index
+                        )
+                      )}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-8">
+                <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
+                  Allenamento
+                </div>
+
+                <h3 className="mt-2 text-xl font-black">
+                  Esercizi principali
+                </h3>
+
+                <div className="mt-4 space-y-4">
+                  {openedSession.exercises
+                    .filter(
+                      (exercise) =>
+                        exercise.section === 'workout'
+                    )
+                    .map((exercise, index) =>
+                      renderSavedExercise(
+                        exercise,
+                        index
+                      )
+                    )}
+                </div>
+              </div>
+
+              {openedSession.cardio_notes && (
+                <div className="mt-8 rounded-[1.5rem] border border-white/10 bg-black/20 p-5">
+                  <div className="text-xs font-black uppercase tracking-[0.15em] text-[#D6A62E]">
+                    Cardio post allenamento
+                  </div>
+
+                  <p className="mt-3 text-sm leading-6 text-white/70">
+                    {openedSession.cardio_notes}
+                  </p>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {!creatingSession && !openedSession && (
           <section className="mt-10">
             <div className="mb-4 flex items-center justify-between gap-4">
               <div>
@@ -905,14 +1181,19 @@ export default function WorkoutsPage() {
                     ).length ?? 0;
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={savedSession.id}
-                      className="rounded-[2rem] border border-white/10 bg-[#151515] p-6 transition hover:border-[#D6A62E]/40"
+                      onClick={() =>
+                        openSavedSession(savedSession.id)
+                      }
+                      className="w-full rounded-[2rem] border border-white/10 bg-[#151515] p-6 text-left transition hover:border-[#D6A62E]/40 hover:bg-white/[0.06]"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-5">
                         <div>
                           <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
-                            Seduta {savedSession.day_order}
+                            Seduta{' '}
+                            {savedSession.day_order}
                           </div>
 
                           <h3 className="mt-2 text-2xl font-black">
@@ -935,7 +1216,8 @@ export default function WorkoutsPage() {
 
                           {warmupCount > 0 && (
                             <div className="mt-1 text-xs text-white/35">
-                              + {warmupCount} riscaldamento
+                              + {warmupCount}{' '}
+                              riscaldamento
                             </div>
                           )}
                         </div>
@@ -948,7 +1230,9 @@ export default function WorkoutsPage() {
                           </div>
 
                           <div className="mt-1 text-sm text-white/60">
-                            {savedSession.cardio_notes}
+                            {
+                              savedSession.cardio_notes
+                            }
                           </div>
                         </div>
                       )}
@@ -956,7 +1240,7 @@ export default function WorkoutsPage() {
                       <div className="mt-5 border-t border-white/10 pt-4 text-sm font-black text-[#D6A62E]">
                         Apri seduta →
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
