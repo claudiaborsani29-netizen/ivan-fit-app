@@ -524,3 +524,323 @@ export async function GET(request: Request) {
     );
   }
 }
+export async function PATCH(request: Request) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY;
+
+    if (!supabaseUrl || !supabaseSecretKey) {
+      return NextResponse.json(
+        { error: 'Configurazione Supabase mancante.' },
+        { status: 500 }
+      );
+    }
+
+    const supabaseAdmin = createClient(
+      supabaseUrl,
+      supabaseSecretKey,
+      {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }
+    );
+
+    const authHeader = request.headers.get('authorization');
+
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Non autorizzato.' },
+        { status: 401 }
+      );
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+
+    const {
+      data: { user: coachUser },
+      error: authError,
+    } = await supabaseAdmin.auth.getUser(token);
+
+    if (authError || !coachUser) {
+      return NextResponse.json(
+        { error: 'Sessione non valida.' },
+        { status: 401 }
+      );
+    }
+
+    const { data: coachProfile, error: coachError } =
+      await supabaseAdmin
+        .from('profiles')
+        .select('id, role')
+        .eq('id', coachUser.id)
+        .single();
+
+    if (
+      coachError ||
+      !coachProfile ||
+      coachProfile.role !== 'coach'
+    ) {
+      return NextResponse.json(
+        { error: 'Operazione consentita soltanto al coach.' },
+        { status: 403 }
+      );
+    }
+
+    const body = await request.json();
+
+    const athleteId =
+      typeof body.athleteId === 'string'
+        ? body.athleteId.trim()
+        : '';
+
+    const workoutDayId =
+      typeof body.workoutDayId === 'string'
+        ? body.workoutDayId.trim()
+        : '';
+
+    const name =
+      typeof body.name === 'string'
+        ? body.name.trim()
+        : '';
+
+    const focus =
+      typeof body.focus === 'string' && body.focus.trim()
+        ? body.focus.trim()
+        : null;
+
+    const cardioNotes =
+      typeof body.cardio === 'string' && body.cardio.trim()
+        ? body.cardio.trim()
+        : null;
+
+    const exercises: ExerciseInput[] = Array.isArray(
+      body.exercises
+    )
+      ? body.exercises
+      : [];
+
+    if (!athleteId || !workoutDayId || !name) {
+      return NextResponse.json(
+        {
+          error:
+            'Allievo, seduta e nome della seduta sono obbligatori.',
+        },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Verifica che l'allievo appartenga al coach.
+     */
+    const { data: relation, error: relationError } =
+      await supabaseAdmin
+        .from('coach_athletes')
+        .select('athlete_id')
+        .eq('coach_id', coachUser.id)
+        .eq('athlete_id', athleteId)
+        .eq('active', true)
+        .maybeSingle();
+
+    if (relationError) {
+      return NextResponse.json(
+        { error: relationError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!relation) {
+      return NextResponse.json(
+        { error: 'Allievo non trovato.' },
+        { status: 404 }
+      );
+    }
+
+    /*
+     * Recupera la scheda attiva appartenente
+     * allo stesso coach e allo stesso allievo.
+     */
+    const { data: plan, error: planError } =
+      await supabaseAdmin
+        .from('workout_plans')
+        .select('id')
+        .eq('coach_id', coachUser.id)
+        .eq('athlete_id', athleteId)
+        .eq('active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (planError) {
+      return NextResponse.json(
+        { error: planError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!plan) {
+      return NextResponse.json(
+        { error: 'Scheda attiva non trovata.' },
+        { status: 404 }
+      );
+    }
+
+    /*
+     * Controllo fondamentale:
+     * la seduta da modificare deve appartenere
+     * proprio alla scheda attiva verificata sopra.
+     */
+    const { data: existingDay, error: daySearchError } =
+      await supabaseAdmin
+        .from('workout_days')
+        .select('id, plan_id')
+        .eq('id', workoutDayId)
+        .eq('plan_id', plan.id)
+        .maybeSingle();
+
+    if (daySearchError) {
+      return NextResponse.json(
+        { error: daySearchError.message },
+        { status: 500 }
+      );
+    }
+
+    if (!existingDay) {
+      return NextResponse.json(
+        { error: 'Seduta non trovata.' },
+        { status: 404 }
+      );
+    }
+
+    /*
+     * Aggiorna i dati generali della seduta.
+     */
+    const { data: updatedDay, error: dayUpdateError } =
+      await supabaseAdmin
+        .from('workout_days')
+        .update({
+          name,
+          focus,
+          cardio_notes: cardioNotes,
+        })
+        .eq('id', workoutDayId)
+        .eq('plan_id', plan.id)
+        .select(
+          'id, name, day_order, focus, cardio_notes, created_at'
+        )
+        .single();
+
+    if (dayUpdateError || !updatedDay) {
+      return NextResponse.json(
+        {
+          error:
+            dayUpdateError?.message ||
+            'Errore durante la modifica della seduta.',
+        },
+        { status: 500 }
+      );
+    }
+
+    const validExercises = exercises.filter(
+      (exercise) =>
+        exercise &&
+        typeof exercise.exerciseId === 'string' &&
+        exercise.exerciseId.trim()
+    );
+
+    if (validExercises.length === 0) {
+      return NextResponse.json(
+        { error: 'Inserisci almeno un esercizio.' },
+        { status: 400 }
+      );
+    }
+
+    /*
+     * Prepara prima le nuove righe.
+     * In questo modo validiamo i dati prima
+     * di eliminare gli esercizi precedenti.
+     */
+    const exerciseRows = validExercises.map(
+      (exercise, index) => {
+        const parsedSets = Number.parseInt(
+          exercise.sets || '',
+          10
+        );
+
+        const restMatch = String(
+          exercise.rest || ''
+        ).match(/\d+/);
+
+        const parsedRest = restMatch
+          ? Number.parseInt(restMatch[0], 10)
+          : null;
+
+        return {
+          workout_day_id: workoutDayId,
+          exercise_id: exercise.exerciseId,
+          exercise_order: index + 1,
+          sets: Number.isNaN(parsedSets)
+            ? null
+            : parsedSets,
+          target_reps: exercise.reps?.trim() || null,
+          target_weight: null,
+          rest_seconds: parsedRest,
+          notes: exercise.notes?.trim() || null,
+          section:
+            exercise.section === 'warmup'
+              ? 'warmup'
+              : 'workout',
+          week_1: exercise.week1?.trim() || null,
+          week_2: exercise.week2?.trim() || null,
+          week_3: exercise.week3?.trim() || null,
+          week_4: exercise.week4?.trim() || null,
+        };
+      }
+    );
+
+    /*
+     * Elimina gli esercizi precedenti della seduta.
+     */
+    const { error: deleteError } = await supabaseAdmin
+      .from('workout_day_exercises')
+      .delete()
+      .eq('workout_day_id', workoutDayId);
+
+    if (deleteError) {
+      return NextResponse.json(
+        { error: deleteError.message },
+        { status: 500 }
+      );
+    }
+
+    /*
+     * Inserisce la nuova versione degli esercizi.
+     */
+    const { error: insertError } = await supabaseAdmin
+      .from('workout_day_exercises')
+      .insert(exerciseRows);
+
+    if (insertError) {
+      return NextResponse.json(
+        { error: insertError.message },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      workoutDay: updatedDay,
+    });
+  } catch (error) {
+    console.error('Errore modifica seduta:', error);
+
+    return NextResponse.json(
+      {
+        error:
+          'Errore durante la modifica della seduta.',
+      },
+      { status: 500 }
+    );
+  }
+}
