@@ -26,6 +26,39 @@ type SessionExercise = {
   week4: string;
 };
 
+type SavedSessionExercise = {
+  id: string;
+  workout_day_id?: string;
+  exercise_id: string;
+  exercise_order?: number;
+  sets?: number | null;
+  target_reps?: string | null;
+  target_weight?: number | null;
+  rest_seconds?: number | null;
+  notes?: string | null;
+  section: string | null;
+  week_1?: string | null;
+  week_2?: string | null;
+  week_3?: string | null;
+  week_4?: string | null;
+  exercises?: {
+    id: string;
+    name: string;
+    muscle_group: string;
+    description: string | null;
+  } | null;
+};
+
+type SavedSession = {
+  id: string;
+  name: string;
+  day_order: number;
+  focus: string | null;
+  cardio_notes: string | null;
+  created_at: string;
+  exercises: SavedSessionExercise[];
+};
+
 const emptyExercise = (
   section: 'warmup' | 'workout'
 ): SessionExercise => ({
@@ -58,9 +91,16 @@ export default function WorkoutsPage() {
   const [catalog, setCatalog] = useState<Exercise[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
+
   const [saving, setSaving] = useState(false);
-const [saveError, setSaveError] = useState('');
-const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>(
+    []
+  );
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState('');
 
   const [sessionExercises, setSessionExercises] = useState<
     SessionExercise[]
@@ -110,6 +150,57 @@ const [saved, setSaved] = useState(false);
     loadExercises();
   }, [router]);
 
+  const loadSavedSessions = async () => {
+    try {
+      setSessionsLoading(true);
+      setSessionsError('');
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.push('/');
+        return;
+      }
+
+      const response = await fetch(
+        `/api/workout-sessions?athleteId=${encodeURIComponent(
+          athleteId
+        )}`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Errore caricamento sedute.'
+        );
+      }
+
+      setSavedSessions(result.sessions ?? []);
+    } catch (error) {
+      setSessionsError(
+        error instanceof Error
+          ? error.message
+          : 'Errore caricamento sedute.'
+      );
+    } finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (athleteId) {
+      loadSavedSessions();
+    }
+  }, [athleteId]);
+
   const muscleGroups = useMemo(() => {
     return Array.from(
       new Set(
@@ -121,15 +212,23 @@ const [saved, setSaved] = useState(false);
   }, [catalog]);
 
   const openNewSession = () => {
-    setSessionName('Seduta A');
+    const nextLetter = String.fromCharCode(
+      65 + savedSessions.length
+    );
+
+    setSessionName(`Seduta ${nextLetter}`);
     setFocus('');
     setCardio('');
     setSessionExercises([]);
+    setSaveError('');
+    setSaved(false);
     setCreatingSession(true);
   };
 
   const closeNewSession = () => {
     setCreatingSession(false);
+    setSaveError('');
+    setSaved(false);
   };
 
   const addExercise = (section: 'warmup' | 'workout') => {
@@ -173,89 +272,92 @@ const [saved, setSaved] = useState(false);
       )
     );
   };
-const saveSession = async () => {
-  try {
-    setSaving(true);
-    setSaveError('');
-    setSaved(false);
 
-    if (!sessionName.trim()) {
-      setSaveError('Inserisci il nome della seduta.');
-      return;
-    }
-
-    const selectedExercises = sessionExercises.filter(
-      (exercise) => exercise.exerciseId
-    );
-
-    if (selectedExercises.length === 0) {
-      setSaveError('Inserisci almeno un esercizio.');
-      return;
-    }
-
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session) {
-      router.push('/');
-      return;
-    }
-
-    const response = await fetch('/api/workout-sessions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        athleteId,
-        name: sessionName,
-        focus,
-        cardio,
-        exercises: selectedExercises.map((exercise) => ({
-          exerciseId: exercise.exerciseId,
-          section: exercise.section,
-          sets: exercise.sets,
-          reps: exercise.reps,
-          rest: exercise.rest,
-          notes: exercise.notes,
-          week1: exercise.week1,
-          week2: exercise.week2,
-          week3: exercise.week3,
-          week4: exercise.week4,
-        })),
-      }),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        result.error || 'Errore durante il salvataggio.'
-      );
-    }
-
-    setSaved(true);
-
-    setTimeout(() => {
-      setCreatingSession(false);
+  const saveSession = async () => {
+    try {
+      setSaving(true);
+      setSaveError('');
       setSaved(false);
-      setSessionExercises([]);
-      setSessionName('Seduta A');
-      setFocus('');
-      setCardio('');
-    }, 1000);
-  } catch (error) {
-    setSaveError(
-      error instanceof Error
-        ? error.message
-        : 'Errore durante il salvataggio.'
-    );
-  } finally {
-    setSaving(false);
-  }
-};
+
+      if (!sessionName.trim()) {
+        setSaveError('Inserisci il nome della seduta.');
+        return;
+      }
+
+      const selectedExercises = sessionExercises.filter(
+        (exercise) => exercise.exerciseId
+      );
+
+      if (selectedExercises.length === 0) {
+        setSaveError('Inserisci almeno un esercizio.');
+        return;
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session) {
+        router.push('/');
+        return;
+      }
+
+      const response = await fetch('/api/workout-sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          athleteId,
+          name: sessionName,
+          focus,
+          cardio,
+          exercises: selectedExercises.map((exercise) => ({
+            exerciseId: exercise.exerciseId,
+            section: exercise.section,
+            sets: exercise.sets,
+            reps: exercise.reps,
+            rest: exercise.rest,
+            notes: exercise.notes,
+            week1: exercise.week1,
+            week2: exercise.week2,
+            week3: exercise.week3,
+            week4: exercise.week4,
+          })),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || 'Errore durante il salvataggio.'
+        );
+      }
+
+      setSaved(true);
+
+      await loadSavedSessions();
+
+      setTimeout(() => {
+        setCreatingSession(false);
+        setSaved(false);
+        setSessionExercises([]);
+        setFocus('');
+        setCardio('');
+      }, 1000);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : 'Errore durante il salvataggio.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const warmupExercises = sessionExercises.filter(
     (exercise) => exercise.section === 'warmup'
   );
@@ -701,32 +803,32 @@ const saveSession = async () => {
                 Annulla
               </button>
 
-<div className="flex flex-col items-end gap-2">
-  {saveError && (
-    <div className="text-sm font-bold text-red-400">
-      {saveError}
-    </div>
-  )}
+              <div className="flex flex-col items-end gap-2">
+                {saveError && (
+                  <div className="text-sm font-bold text-red-400">
+                    {saveError}
+                  </div>
+                )}
 
-  {saved && (
-    <div className="text-sm font-bold text-green-400">
-      Seduta salvata ✓
-    </div>
-  )}
+                {saved && (
+                  <div className="text-sm font-bold text-green-400">
+                    Seduta salvata ✓
+                  </div>
+                )}
 
-  <button
-    type="button"
-    onClick={saveSession}
-    disabled={saving || saved}
-    className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-  >
-    {saving
-      ? 'Salvataggio...'
-      : saved
-        ? 'Salvata ✓'
-        : 'Salva Seduta'}
-  </button>
-</div>
+                <button
+                  type="button"
+                  onClick={saveSession}
+                  disabled={saving || saved}
+                  className="rounded-full bg-[#D6A62E] px-6 py-3 text-sm font-black text-black transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving
+                    ? 'Salvataggio...'
+                    : saved
+                      ? 'Salvata ✓'
+                      : 'Salva Seduta'}
+                </button>
+              </div>
             </div>
           </section>
         )}
@@ -745,33 +847,120 @@ const saveSession = async () => {
               </div>
 
               <div className="rounded-full border border-white/10 px-4 py-2 text-xs font-bold text-white/40">
-                0 sedute
+                {sessionsLoading
+                  ? '...'
+                  : `${savedSessions.length} ${
+                      savedSessions.length === 1
+                        ? 'seduta'
+                        : 'sedute'
+                    }`}
               </div>
             </div>
 
-            <div className="rounded-[2rem] border border-dashed border-white/15 bg-[#151515] p-10 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#D6A62E]/10 text-2xl text-[#D6A62E]">
-                +
+            {sessionsError && (
+              <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+                {sessionsError}
               </div>
+            )}
 
-              <h3 className="mt-5 text-xl font-black">
-                Nessuna seduta creata
-              </h3>
+            {sessionsLoading ? (
+              <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-10 text-center text-sm text-white/40">
+                Caricamento sedute...
+              </div>
+            ) : savedSessions.length === 0 ? (
+              <div className="rounded-[2rem] border border-dashed border-white/15 bg-[#151515] p-10 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#D6A62E]/10 text-2xl text-[#D6A62E]">
+                  +
+                </div>
 
-              <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/40">
-                Crea la prima seduta della scheda. Potrai
-                organizzare riscaldamento, allenamento,
-                progressioni e cardio.
-              </p>
+                <h3 className="mt-5 text-xl font-black">
+                  Nessuna seduta creata
+                </h3>
 
-              <button
-                type="button"
-                onClick={openNewSession}
-                className="mt-6 rounded-full border border-[#D6A62E]/40 px-6 py-3 text-sm font-black text-[#D6A62E] transition hover:bg-[#D6A62E]/10"
-              >
-                Crea Seduta A
-              </button>
-            </div>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-white/40">
+                  Crea la prima seduta della scheda.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={openNewSession}
+                  className="mt-6 rounded-full border border-[#D6A62E]/40 px-6 py-3 text-sm font-black text-[#D6A62E] transition hover:bg-[#D6A62E]/10"
+                >
+                  Crea Seduta A
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {savedSessions.map((savedSession) => {
+                  const workoutCount =
+                    savedSession.exercises?.filter(
+                      (exercise) =>
+                        exercise.section === 'workout'
+                    ).length ?? 0;
+
+                  const warmupCount =
+                    savedSession.exercises?.filter(
+                      (exercise) =>
+                        exercise.section === 'warmup'
+                    ).length ?? 0;
+
+                  return (
+                    <div
+                      key={savedSession.id}
+                      className="rounded-[2rem] border border-white/10 bg-[#151515] p-6 transition hover:border-[#D6A62E]/40"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-5">
+                        <div>
+                          <div className="text-xs font-black uppercase tracking-[0.2em] text-[#D6A62E]">
+                            Seduta {savedSession.day_order}
+                          </div>
+
+                          <h3 className="mt-2 text-2xl font-black">
+                            {savedSession.name}
+                          </h3>
+
+                          <p className="mt-2 text-sm text-white/45">
+                            {savedSession.focus ||
+                              'Nessun focus specificato'}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-sm font-black">
+                            {workoutCount}{' '}
+                            {workoutCount === 1
+                              ? 'esercizio'
+                              : 'esercizi'}
+                          </div>
+
+                          {warmupCount > 0 && (
+                            <div className="mt-1 text-xs text-white/35">
+                              + {warmupCount} riscaldamento
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {savedSession.cardio_notes && (
+                        <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                          <div className="text-xs font-black uppercase tracking-[0.12em] text-white/30">
+                            Cardio post workout
+                          </div>
+
+                          <div className="mt-1 text-sm text-white/60">
+                            {savedSession.cardio_notes}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-5 border-t border-white/10 pt-4 text-sm font-black text-[#D6A62E]">
+                        Apri seduta →
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
         )}
       </div>
