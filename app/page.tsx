@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 import BottomNav from '@/components/BottomNav';
 import WorkoutTracker from '@/components/WorkoutTracker';
-import { todayWorkout } from '@/lib/data';
 import { supabase } from '@/lib/supabase';
 
 type Role = 'athlete' | 'coach';
@@ -22,6 +21,51 @@ type CoachAthlete = {
   next_check: string | null;
 };
 
+type ExerciseInfo = {
+  id: string;
+  name: string;
+  muscle_group: string | null;
+  description: string | null;
+};
+
+type AthleteExercise = {
+  id: string;
+  exercise_id: string;
+  exercise_order?: number | null;
+  sets?: number | null;
+  target_reps?: string | null;
+  target_weight?: number | null;
+  rest_seconds?: number | null;
+  notes?: string | null;
+  section?: string | null;
+  week_1?: string | null;
+  week_2?: string | null;
+  week_3?: string | null;
+  week_4?: string | null;
+  exercises?: ExerciseInfo | ExerciseInfo[] | null;
+};
+
+type AthleteSession = {
+  id: string;
+  name: string;
+  day_order: number;
+  focus: string | null;
+  cardio_notes: string | null;
+  exercises: AthleteExercise[];
+};
+
+type AthleteWorkoutData = {
+  athlete: {
+    id: string;
+    full_name: string;
+    plan: string | null;
+    goal: string | null;
+    next_check: string | null;
+  };
+  plan: { id: string; name: string } | null;
+  sessions: AthleteSession[];
+};
+
 export default function Home() {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -32,6 +76,12 @@ export default function Home() {
   const [error, setError] = useState('');
 
   const [tab, setTab] = useState('home');
+
+  const [athleteWorkout, setAthleteWorkout] =
+    useState<AthleteWorkoutData | null>(null);
+  const [athleteWorkoutLoading, setAthleteWorkoutLoading] = useState(false);
+  const [athleteWorkoutError, setAthleteWorkoutError] = useState('');
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   // ALLIEVI REALI DEL COACH
   const [coachAthletes, setCoachAthletes] = useState<CoachAthlete[]>([]);
@@ -114,6 +164,10 @@ export default function Home() {
         if (loadedProfile?.role === 'coach') {
           await loadCoachAthletes(loadedProfile.id);
         }
+
+        if (loadedProfile?.role === 'athlete') {
+          await loadAthleteWorkout();
+        }
       }
 
       setLoading(false);
@@ -167,6 +221,8 @@ export default function Home() {
 
     setProfile(null);
     setCoachAthletes([]);
+    setAthleteWorkout(null);
+    setSelectedSessionId(null);
     setEmail('');
     setPassword('');
     setTab('home');
@@ -615,6 +671,14 @@ export default function Home() {
   const firstName =
     profile.full_name?.trim().split(' ')[0] || 'Atleta';
 
+  const athleteSessions = athleteWorkout?.sessions ?? [];
+  const selectedSession =
+    athleteSessions.find((session) => session.id === selectedSessionId) ??
+    athleteSessions[0] ??
+    null;
+  const workoutExerciseCount =
+    selectedSession?.exercises.filter((exercise) => exercise.section !== 'warmup').length ?? 0;
+
   return (
     <main className="min-h-screen bg-[#090A0A] px-5 pb-28 pt-7 text-white">
       <div className="mx-auto max-w-xl">
@@ -649,23 +713,37 @@ export default function Home() {
 
             <section className="mt-7 rounded-[2rem] border border-[#D6A62E]/35 bg-[linear-gradient(145deg,rgba(214,166,46,.16),rgba(21,21,21,1))] p-6">
               <div className="text-xs font-black uppercase tracking-[0.25em] text-[#D6A62E]">
-                Allenamento di oggi
+                Programmazione attiva
               </div>
 
-              <h2 className="mt-3 text-3xl font-black">
-                Lower Body
-              </h2>
-
-              <p className="mt-2 text-white/55">
-                {todayWorkout.length} esercizi · ~65 min
-              </p>
-
-              <button
-                onClick={() => setTab('workout')}
-                className="mt-7 w-full rounded-full bg-[#D6A62E] py-4 font-black text-black"
-              >
-                INIZIA ALLENAMENTO →
-              </button>
+              {athleteWorkoutLoading ? (
+                <p className="mt-4 text-white/45">Caricamento allenamento...</p>
+              ) : athleteWorkoutError ? (
+                <p className="mt-4 text-sm text-red-300">{athleteWorkoutError}</p>
+              ) : selectedSession ? (
+                <>
+                  <h2 className="mt-3 text-3xl font-black">{selectedSession.name}</h2>
+                  {selectedSession.focus && (
+                    <p className="mt-2 text-white/55">{selectedSession.focus}</p>
+                  )}
+                  <p className="mt-2 text-white/55">
+                    {workoutExerciseCount} {workoutExerciseCount === 1 ? 'esercizio' : 'esercizi'}
+                  </p>
+                  <button
+                    onClick={() => setTab('workout')}
+                    className="mt-7 w-full rounded-full bg-[#D6A62E] py-4 font-black text-black"
+                  >
+                    INIZIA ALLENAMENTO →
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h2 className="mt-3 text-2xl font-black">Nessuna seduta disponibile</h2>
+                  <p className="mt-2 text-sm text-white/45">
+                    La programmazione comparirà qui quando il coach avrà preparato la scheda.
+                  </p>
+                </>
+              )}
             </section>
 
             <h2 className="mt-8 text-xl font-black">
@@ -709,7 +787,13 @@ export default function Home() {
 
         {tab === 'workout' && (
           <div className="mt-8">
-            <WorkoutTracker />
+            {selectedSession ? (
+              <WorkoutTracker session={selectedSession} />
+            ) : (
+              <div className="rounded-[2rem] border border-white/10 bg-[#151515] p-6">
+                <div className="text-xl font-black">Nessuna seduta disponibile</div>
+              </div>
+            )}
           </div>
         )}
 
@@ -760,15 +844,18 @@ export default function Home() {
               </div>
 
               <div className="mt-2 text-[#D6A62E]">
-                Premium 90
+                {athleteWorkout?.athlete.plan || 'Piano non assegnato'}
               </div>
 
               <div className="mt-6 space-y-3 text-sm text-white/55">
-                <p>
-                  Obiettivo: forza e composizione corporea
-                </p>
+                <p>Obiettivo: {athleteWorkout?.athlete.goal || 'Non ancora impostato'}</p>
                 <p>Coach: Ivan Cecchetti</p>
-                <p>Prossimo check: 24 settembre</p>
+                <p>
+                  Prossimo check:{' '}
+                  {athleteWorkout?.athlete.next_check
+                    ? new Date(`${athleteWorkout.athlete.next_check}T00:00:00`).toLocaleDateString('it-IT')
+                    : 'Da programmare'}
+                </p>
               </div>
 
               <button
